@@ -96,3 +96,56 @@
             (try! (nft-transfer? game-asset asset-id owner recipient)) ;; Transfer the asset
             (ok true))))
 
+(define-public (burn-asset (asset-id uint))
+    (let ((asset-owner (unwrap! (nft-get-owner? game-asset asset-id) err-asset-not-found)))
+        ;; Ensure the caller is the owner of the asset and proceed to burn it
+        (asserts! (is-eq tx-sender asset-owner) err-not-asset-owner)
+        (asserts! (not (check-asset-burned asset-id)) err-asset-already-exists)
+        (try! (nft-burn? game-asset asset-id asset-owner)) ;; Burn the asset
+        (map-set burned-assets asset-id true) ;; Mark the asset as burned
+        (ok true)))
+
+(define-public (list-asset (asset-id uint))
+    (begin
+        ;; Validate the caller is the asset owner before listing it
+        (asserts! (validate-asset-owner asset-id tx-sender) err-not-asset-owner)
+
+        ;; Mark the asset as listed on the marketplace
+        (map-set marketplace-listing asset-id true)
+        (ok true)))
+
+(define-public (unlist-asset (asset-id uint))
+    (begin
+        ;; Validate the caller is the asset owner before unlisting it
+        (asserts! (validate-asset-owner asset-id tx-sender) err-not-asset-owner)
+
+        ;; Remove the asset from the marketplace listing
+        (map-set marketplace-listing asset-id false)
+        (ok true)))
+
+;; Read-Only Functions
+
+(define-read-only (get-asset-uri (asset-id uint))
+    ;; Retrieve the URI (metadata) associated with the asset
+    (ok (map-get? asset-metadata asset-id)))
+
+(define-read-only (get-asset-owner (asset-id uint))
+    ;; Retrieve the owner of the asset
+    (ok (nft-get-owner? game-asset asset-id)))
+
+(define-read-only (get-total-assets)
+    ;; Get the total number of minted assets (asset counter)
+    (ok (var-get asset-counter)))
+
+(define-read-only (is-listed (asset-id uint))
+    ;; Check if the asset is currently listed on the marketplace
+    (ok (default-to false (map-get? marketplace-listing asset-id))))
+
+(define-read-only (check-burn-status (asset-id uint))
+    ;; Check if the asset has been burned
+    (ok (check-asset-burned asset-id)))
+
+;; Contract Initialization
+(begin
+    ;; Initialize the asset counter to 0 at contract deployment
+    (var-set asset-counter u0))
