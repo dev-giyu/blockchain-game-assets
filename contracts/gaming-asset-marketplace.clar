@@ -31,3 +31,68 @@
 (define-private (validate-asset-owner (asset-id uint) (user principal))
     ;; Check if the given user is the owner of the asset
     (is-eq user (unwrap! (nft-get-owner? game-asset asset-id) false)))
+
+(define-private (validate-uri (uri (string-ascii 256)))
+    ;; Validate if the URI is within the accepted length (1 to 256 characters)
+    (let ((length (len uri)))
+        (and (>= length u1)
+             (<= length u256))))
+
+(define-private (check-asset-burned (asset-id uint))
+    ;; Check if the asset has been burned
+    (default-to false (map-get? burned-assets asset-id)))
+
+(define-private (mint-asset (asset-uri (string-ascii 256)))
+    ;; Mint a new asset and assign a unique ID to it
+    (let ((new-asset-id (+ (var-get asset-counter) u1)))
+        (asserts! (validate-uri asset-uri) err-invalid-asset-uri) ;; Validate the URI
+        (try! (nft-mint? game-asset new-asset-id tx-sender)) ;; Mint the asset
+        (map-set asset-metadata new-asset-id asset-uri) ;; Store the metadata URI
+        (var-set asset-counter new-asset-id) ;; Update the asset counter
+        (ok new-asset-id)))
+
+;; Public Functions
+
+(define-public (mint-single-asset (uri (string-ascii 256)))
+    (begin
+        ;; Ensure that only the admin can mint assets
+        (asserts! (is-eq tx-sender marketplace-admin) err-not-admin)
+
+        ;; Validate the asset URI
+        (asserts! (validate-uri uri) err-invalid-asset-uri)
+
+        ;; Proceed to mint the asset after validation
+        (mint-asset uri)))
+
+(define-public (batch-mint-assets (uris (list 50 (string-ascii 256))))
+    (let ((mint-count (len uris)))
+        (begin
+            ;; Ensure that only the admin can batch mint assets
+            (asserts! (is-eq tx-sender marketplace-admin) err-not-admin)
+
+            ;; Ensure the batch does not exceed the mint limit
+            (asserts! (<= mint-count max-mint-limit) err-asset-already-exists)
+
+            ;; Mint each asset in the list
+            (ok (fold mint-asset-from-list uris (list))))))
+
+(define-private (mint-asset-from-list (uri (string-ascii 256)) (prior-results (list 50 uint)))
+    ;; Mint a single asset from the batch and accumulate the results
+    (match (mint-asset uri)
+        asset-id (unwrap-panic (as-max-len? (append prior-results asset-id) u50))
+        error prior-results))
+
+(define-public (transfer-asset (asset-id uint) (owner principal) (recipient principal))
+    (begin
+        ;; Ensure the recipient is authorized to receive the asset
+        (asserts! (is-eq recipient tx-sender) err-not-asset-owner)
+
+        ;; Ensure the asset is not burned
+        (asserts! (not (check-asset-burned asset-id)) err-burn-asset-failed)
+
+        ;; Validate that the caller is the asset owner and proceed with the transfer
+        (let ((current-owner (unwrap! (nft-get-owner? game-asset asset-id) err-not-asset-owner)))
+            (asserts! (is-eq current-owner owner) err-not-asset-owner)
+            (try! (nft-transfer? game-asset asset-id owner recipient)) ;; Transfer the asset
+            (ok true))))
+
