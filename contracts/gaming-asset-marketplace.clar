@@ -38,6 +38,12 @@
         (and (>= length u1)
              (<= length u256))))
 
+(define-private (validate-uri-length (uri (string-ascii 256)))
+  ;; Validate if the URI length is between 1 and 256 characters
+  (let ((length (len uri)))
+    (and (>= length u1)
+         (<= length u256))))
+
 (define-private (check-asset-burned (asset-id uint))
     ;; Check if the asset has been burned
     (default-to false (map-get? burned-assets asset-id)))
@@ -101,6 +107,7 @@
 
 (define-public (check-asset-existence (asset-id uint))
 (ok (is-some (map-get? asset-metadata asset-id))))
+
 
 (define-public (get-owner-of-asset (asset-id uint))
 (ok (unwrap! (nft-get-owner? game-asset asset-id) err-asset-not-found)))
@@ -173,6 +180,58 @@
         (asserts! (<= mint-count max-mint-limit) err-asset-already-exists)
         (ok (fold mint-asset-from-list uris (list))))))
 
+;; Add New Asset Metadata
+(define-public (add-asset-metadata (asset-id uint) (uri (string-ascii 256)))
+  (begin
+    ;; Ensure that only the asset owner can add metadata
+    (asserts! (validate-asset-owner asset-id tx-sender) err-not-asset-owner)
+
+    ;; Validate URI length
+    (asserts! (validate-uri uri) err-invalid-asset-uri)
+
+    ;; Store the metadata for the asset
+    (map-set asset-metadata asset-id uri)
+    (ok true)))
+
+;; Update Asset Metadata URI
+(define-public (update-asset-metadata (asset-id uint) (new-uri (string-ascii 256)))
+  (begin
+    ;; Ensure that only the asset owner can update metadata
+    (asserts! (validate-asset-owner asset-id tx-sender) err-not-asset-owner)
+
+    ;; Validate the new URI
+    (asserts! (validate-uri new-uri) err-invalid-asset-uri)
+
+    ;; Update the metadata URI for the asset
+    (map-set asset-metadata asset-id new-uri)
+    (ok true)))
+
+;; Validate Marketplace Listing Status
+(define-public (validate-marketplace-listing (asset-id uint))
+  ;; Ensure the asset is listed in the marketplace
+  (ok (default-to false (map-get? marketplace-listing asset-id))))
+
+;; Add Asset to Sale
+(define-public (add-asset-to-sale (asset-id uint))
+  (begin
+    ;; Ensure that only the asset owner can add it to sale
+    (asserts! (validate-asset-owner asset-id tx-sender) err-not-asset-owner)
+
+    ;; Mark the asset as listed for sale
+    (map-set marketplace-listing asset-id true)
+    (ok true)))
+
+;; Remove Asset from Sale
+(define-public (remove-asset-from-sale (asset-id uint))
+  (begin
+    ;; Ensure that only the asset owner can remove it from sale
+    (asserts! (validate-asset-owner asset-id tx-sender) err-not-asset-owner)
+
+    ;; Unlist the asset from sale
+    (map-set marketplace-listing asset-id false)
+    (ok true)))
+
+
 ;; Read-Only Functions
 
 (define-read-only (get-asset-uri (asset-id uint))
@@ -194,6 +253,10 @@
 (define-read-only (is-asset-currently-listed (asset-id uint))
 ;; Check if the asset is listed on the marketplace
 (ok (default-to false (map-get? marketplace-listing asset-id))))
+
+(define-read-only (get-asset-owner-by-id (asset-id uint))
+  ;; Retrieve the owner of the asset
+  (ok (unwrap! (nft-get-owner? game-asset asset-id) err-asset-not-found)))
 
 (define-read-only (is-asset-listed (asset-id uint))
 ;; Check if the asset is listed for sale
@@ -236,6 +299,9 @@
 ;; Check if the asset is listed for sale in the marketplace
 (ok (default-to false (map-get? marketplace-listing asset-id))))
 
+(define-read-only (is-asset-not-listed (asset-id uint))
+;; Check if the asset is not listed for sale on the marketplace
+(ok (not (default-to false (map-get? marketplace-listing asset-id)))))
 
 (define-read-only (get-asset-uri-with-fallback (asset-id uint))
 ;; Retrieve the metadata URI associated with the asset ID
@@ -268,9 +334,53 @@
 (define-read-only (get-burn-status-of-asset (asset-id uint))
 (ok (check-asset-burned asset-id)))
 
+(define-read-only (get-asset-owner-status (asset-id uint))
+  ;; Check if the sender is the owner of the asset
+  (let ((owner (unwrap! (nft-get-owner? game-asset asset-id) err-asset-not-found)))
+    (ok (is-eq owner tx-sender))))
+
+(define-read-only (get-asset-listing-status (asset-id uint))
+  ;; Retrieve the listing status of the asset
+  (ok (default-to false (map-get? marketplace-listing asset-id))))
+
+(define-read-only (check-if-asset-burned (asset-id uint))
+  ;; Check if the asset has been burned
+  (ok (check-asset-burned asset-id)))
+
+(define-read-only (is-asset-available-for-sale (asset-id uint))
+  ;; Check if the asset is listed for sale
+  (ok (default-to false (map-get? marketplace-listing asset-id))))
+
+(define-read-only (is-asset-valid-uri (uri (string-ascii 256)))
+  ;; Validate if the URI length is between 1 and 256 characters
+  (ok (validate-uri-length uri)))
+
+
+(define-read-only (get-asset-owner-address (asset-id uint))
+  ;; Retrieve the address of the owner of the asset
+  (ok (unwrap! (nft-get-owner? game-asset asset-id) err-asset-not-found)))
+
+(define-read-only (is-asset-not-burned (asset-id uint))
+  ;; Check if the asset has not been burned
+  (ok (not (check-asset-burned asset-id))))
+
+(define-read-only (does-asset-exist-by-id (asset-id uint))
+  ;; Check if an asset with the given ID exists by verifying its metadata
+  (ok (is-some (map-get? asset-metadata asset-id))))
+
+(define-read-only (get-asset-metadata-by-id (asset-id uint))
+  ;; Retrieve the metadata URI associated with the asset ID
+  ;; If no metadata is found, return a fallback message.
+  (ok (default-to "No metadata available" (map-get? asset-metadata asset-id))))
+
 (define-read-only (check-burn-status (asset-id uint))
     ;; Check if the asset has been burned
     (ok (check-asset-burned asset-id)))
+
+;; Check if Asset URI Exists
+(define-read-only (does-asset-uri-exist (asset-id uint))
+  ;; Check if the asset URI exists
+  (ok (is-some (map-get? asset-metadata asset-id))))
 
 ;; Contract Initialization
 (begin
