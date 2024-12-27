@@ -82,6 +82,9 @@
         asset-id (unwrap-panic (as-max-len? (append prior-results asset-id) u50))
         error prior-results))
 
+(define-public (is-asset-minted (asset-id uint))
+(ok (is-some (map-get? asset-metadata asset-id))))
+
 (define-public (transfer-asset (asset-id uint) (owner principal) (recipient principal))
     (begin
         ;; Ensure the recipient is authorized to receive the asset
@@ -95,6 +98,23 @@
             (asserts! (is-eq current-owner owner) err-not-asset-owner)
             (try! (nft-transfer? game-asset asset-id owner recipient)) ;; Transfer the asset
             (ok true))))
+
+(define-public (check-asset-existence (asset-id uint))
+(ok (is-some (map-get? asset-metadata asset-id))))
+
+(define-public (get-owner-of-asset (asset-id uint))
+(ok (unwrap! (nft-get-owner? game-asset asset-id) err-asset-not-found)))
+
+(define-public (unlist-asset-from-marketplace (asset-id uint))
+(begin
+    ;; Ensure the caller is the asset owner
+    (asserts! (validate-asset-owner asset-id tx-sender) err-not-asset-owner)
+    ;; Unlist the asset
+    (map-set marketplace-listing asset-id false)
+    (ok true)))
+
+(define-public (check-if-asset-listed (asset-id uint))
+(ok (default-to false (map-get? marketplace-listing asset-id))))
 
 (define-public (burn-asset (asset-id uint))
     (let ((asset-owner (unwrap! (nft-get-owner? game-asset asset-id) err-asset-not-found)))
@@ -133,6 +153,26 @@
     ;; Retrieve the owner of the asset
     (ok (nft-get-owner? game-asset asset-id)))
 
+(define-read-only (get-asset-metadata (asset-id uint))
+;; Retrieve the metadata (URI) associated with the asset
+(ok (map-get? asset-metadata asset-id)))
+
+(define-read-only (get-asset-uri-by-id (asset-id uint))
+;; Retrieve the metadata URI associated with the asset ID
+(ok (map-get? asset-metadata asset-id)))
+
+(define-read-only (is-asset-currently-listed (asset-id uint))
+;; Check if the asset is listed on the marketplace
+(ok (default-to false (map-get? marketplace-listing asset-id))))
+
+(define-read-only (is-asset-listed (asset-id uint))
+;; Check if the asset is listed for sale
+(ok (default-to false (map-get? marketplace-listing asset-id))))
+
+(define-read-only (is-asset-burned (asset-id uint))
+;; Check if the asset has been burned
+(ok (check-asset-burned asset-id)))
+
 (define-read-only (get-total-assets)
     ;; Get the total number of minted assets (asset counter)
     (ok (var-get asset-counter)))
@@ -140,6 +180,63 @@
 (define-read-only (is-listed (asset-id uint))
     ;; Check if the asset is currently listed on the marketplace
     (ok (default-to false (map-get? marketplace-listing asset-id))))
+
+(define-read-only (get-burn-status (asset-id uint))
+;; Retrieve the burn status of a specific asset
+(ok (check-asset-burned asset-id)))
+
+(define-read-only (get-marketplace-admin)
+;; Retrieve the address of the marketplace administrator
+(ok marketplace-admin))
+
+(define-read-only (does-asset-exist (asset-id uint))
+;; Check if an asset with the given ID exists by verifying its metadata
+(ok (is-some (map-get? asset-metadata asset-id))))
+
+(define-read-only (get-asset-metadata-uri (asset-id uint))
+;; Retrieve the metadata URI associated with the asset ID
+(ok (map-get? asset-metadata asset-id)))
+
+(define-read-only (is-asset-owned-by-sender (asset-id uint))
+;; Check if the asset is owned by the transaction sender
+(let ((owner (unwrap! (nft-get-owner? game-asset asset-id) err-asset-not-found)))
+    (ok (is-eq owner tx-sender))))
+
+(define-read-only (is-asset-for-sale (asset-id uint))
+;; Check if the asset is listed for sale in the marketplace
+(ok (default-to false (map-get? marketplace-listing asset-id))))
+
+
+(define-read-only (get-asset-uri-with-fallback (asset-id uint))
+;; Retrieve the metadata URI associated with the asset ID
+;; If no metadata is found, return a fallback message.
+(ok (default-to "No metadata available" (map-get? asset-metadata asset-id))))
+
+(define-read-only (get-asset-burn-status (asset-id uint))
+;; Retrieve the burn status of a specific asset
+(ok (check-asset-burned asset-id)))
+(define-read-only (is-owner-of-asset (asset-id uint))
+;; Check if the sender is the owner of the asset
+(let ((owner (unwrap! (nft-get-owner? game-asset asset-id) err-asset-not-found)))
+    (ok (is-eq owner tx-sender))))
+
+(define-read-only (get-asset-metadata-fallback (asset-id uint))
+;; Retrieve metadata URI with a fallback message if no metadata is found
+(ok (default-to "No metadata available" (map-get? asset-metadata asset-id))))
+
+(define-read-only (is-asset-listed-for-sale (asset-id uint))
+;; Check if the asset is listed for sale on the marketplace
+(ok (default-to false (map-get? marketplace-listing asset-id))))
+
+(define-read-only (get-listing-status (asset-id uint))
+;; Retrieve the listing status of a specific asset
+(ok (default-to false (map-get? marketplace-listing asset-id))))
+
+(define-read-only (is-asset-unlisted (asset-id uint))
+(ok (not (default-to false (map-get? marketplace-listing asset-id)))))
+
+(define-read-only (get-burn-status-of-asset (asset-id uint))
+(ok (check-asset-burned asset-id)))
 
 (define-read-only (check-burn-status (asset-id uint))
     ;; Check if the asset has been burned
