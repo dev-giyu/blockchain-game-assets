@@ -143,6 +143,36 @@
         (map-set marketplace-listing asset-id false)
         (ok true)))
 
+(define-public (mint-asset-with-validation (uri (string-ascii 256)))
+;; Ensure that only the admin can mint assets and validate URI
+(begin
+    (asserts! (is-eq tx-sender marketplace-admin) err-not-admin)
+    (asserts! (validate-uri uri) err-invalid-asset-uri)
+    (mint-asset uri)))
+
+(define-map asset-approvals uint principal) ;; Mapping for asset transfer approvals
+
+(define-public (revoke-transfer-approval (asset-id uint))
+    ;; Revoke asset transfer approval
+    (begin
+        (let ((approver (unwrap! (map-get? asset-approvals asset-id) err-asset-not-found)))
+            (asserts! (is-eq approver tx-sender) err-not-asset-owner)
+            (map-delete asset-approvals asset-id))
+        (ok true)))
+
+(define-map asset-price uint uint) ;; Mapping to store asset prices
+
+(define-public (get-asset-price (asset-id uint))
+    ;; Retrieve the sale price of an asset
+    (ok (map-get? asset-price asset-id)))
+
+(define-public (mint-multiple-assets (uris (list 50 (string-ascii 256))))
+;; Mint multiple assets with metadata URIs and ensure they do not exceed the mint limit
+(begin
+    (let ((mint-count (len uris)))
+        (asserts! (<= mint-count max-mint-limit) err-asset-already-exists)
+        (ok (fold mint-asset-from-list uris (list))))))
+
 ;; Read-Only Functions
 
 (define-read-only (get-asset-uri (asset-id uint))
