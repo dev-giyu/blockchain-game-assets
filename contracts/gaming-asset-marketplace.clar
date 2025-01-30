@@ -112,12 +112,25 @@
 (define-public (get-owner-of-asset (asset-id uint))
 (ok (unwrap! (nft-get-owner? game-asset asset-id) err-asset-not-found)))
 
+
 (define-public (unlist-asset-from-marketplace (asset-id uint))
 (begin
     ;; Ensure the caller is the asset owner
     (asserts! (validate-asset-owner asset-id tx-sender) err-not-asset-owner)
     ;; Unlist the asset
     (map-set marketplace-listing asset-id false)
+    (ok true)))
+
+(define-public (update-asset-uri (asset-id uint) (new-uri (string-ascii 256)))
+(begin
+    ;; Ensure the caller is the asset owner
+    (asserts! (validate-asset-owner asset-id tx-sender) err-not-asset-owner)
+
+    ;; Validate the new URI
+    (asserts! (validate-uri new-uri) err-invalid-asset-uri)
+
+    ;; Update the asset's URI in the mapping
+    (map-set asset-metadata asset-id new-uri)
     (ok true)))
 
 (define-public (check-if-asset-listed (asset-id uint))
@@ -149,6 +162,60 @@
         ;; Remove the asset from the marketplace listing
         (map-set marketplace-listing asset-id false)
         (ok true)))
+
+
+;; Enhanced Asset Transfer Function with Fee Payment
+(define-public (transfer-asset-with-fee (asset-id uint) (recipient principal) (fee uint))
+  (begin
+    ;; Ensure the sender is the owner of the asset
+    (let ((owner (unwrap! (nft-get-owner? game-asset asset-id) err-not-asset-owner)))
+        (asserts! (is-eq owner tx-sender) err-not-asset-owner))
+
+    ;; Ensure the asset is not burned
+    (asserts! (not (check-asset-burned asset-id)) err-burn-asset-failed)
+
+    ;; Deduct the fee from the sender
+    (try! (stx-transfer? fee tx-sender marketplace-admin))
+
+    ;; Transfer the asset to the recipient
+    (try! (nft-transfer? game-asset asset-id tx-sender recipient))
+    (ok true)))
+
+;; Fetch Asset Price with Fallback
+(define-public (get-asset-price-with-fallback (asset-id uint) (fallback-price uint))
+  ;; Retrieve the asset price or use the fallback if not listed
+  (ok (default-to fallback-price (map-get? asset-price asset-id))))
+
+;; Check Asset Transfer Approval
+(define-public (check-asset-transfer-approval (asset-id uint) (approver principal))
+  ;; Verify if the specified principal has approval to transfer the asset
+  (ok (is-eq (unwrap! (map-get? asset-approvals asset-id) err-asset-not-found) approver)))
+
+;; Fetch Asset Burn Status with Fallback
+(define-public (get-asset-burn-status-with-fallback (asset-id uint) (fallback-status bool))
+  ;; Retrieve burn status or use fallback
+  (ok (default-to fallback-status (map-get? burned-assets asset-id))))
+
+;; Optimize Asset Listing Check
+(define-public (is-asset-listed-optimized (asset-id uint))
+  ;; Optimize by directly checking if the asset is listed
+  (ok (default-to false (map-get? marketplace-listing asset-id))))
+
+;; Revoke Asset Sale Approval
+(define-public (revoke-asset-sale-approval (asset-id uint))
+  (begin
+    ;; Ensure only the asset owner can revoke approval
+    (asserts! (validate-asset-owner asset-id tx-sender) err-not-asset-owner)
+
+    ;; Delete the approval entry
+    (map-delete asset-approvals asset-id)
+    (ok true)))
+
+;; Validate Asset for Transfer Approval
+(define-public (validate-asset-for-transfer-approval (asset-id uint))
+  ;; Ensure the asset has a transfer approval
+  (ok (is-some (map-get? asset-approvals asset-id))))
+
 
 (define-public (mint-asset-with-validation (uri (string-ascii 256)))
 ;; Ensure that only the admin can mint assets and validate URI
@@ -238,9 +305,17 @@
     ;; Retrieve the URI (metadata) associated with the asset
     (ok (map-get? asset-metadata asset-id)))
 
+(define-read-only (is-asset-burnable (asset-id uint))
+  ;; Check if the asset can be burned (not already burned)
+  (ok (not (check-asset-burned asset-id))))
+
 (define-read-only (get-asset-owner (asset-id uint))
     ;; Retrieve the owner of the asset
     (ok (nft-get-owner? game-asset asset-id)))
+
+(define-read-only (get-asset-uri-or-default (asset-id uint))
+  ;; Retrieve the metadata URI associated with the asset ID, or return a default fallback message
+  (ok (default-to "No metadata available" (map-get? asset-metadata asset-id))))
 
 (define-read-only (get-asset-metadata (asset-id uint))
 ;; Retrieve the metadata (URI) associated with the asset
@@ -265,6 +340,7 @@
 (define-read-only (is-asset-burned (asset-id uint))
 ;; Check if the asset has been burned
 (ok (check-asset-burned asset-id)))
+
 
 (define-read-only (get-total-assets)
     ;; Get the total number of minted assets (asset counter)
@@ -320,6 +396,10 @@
 ;; Retrieve metadata URI with a fallback message if no metadata is found
 (ok (default-to "No metadata available" (map-get? asset-metadata asset-id))))
 
+(define-read-only (get-listing-status-with-fallback (asset-id uint))
+;; Retrieve the listing status with a fallback if the asset is not listed
+(ok (default-to false (map-get? marketplace-listing asset-id))))
+
 (define-read-only (is-asset-listed-for-sale (asset-id uint))
 ;; Check if the asset is listed for sale on the marketplace
 (ok (default-to false (map-get? marketplace-listing asset-id))))
@@ -373,6 +453,31 @@
   ;; If no metadata is found, return a fallback message.
   (ok (default-to "No metadata available" (map-get? asset-metadata asset-id))))
 
+(define-read-only (is-sender-admin)
+  ;; Check if the sender is the marketplace administrator
+  (ok (is-eq tx-sender marketplace-admin)))
+
+(define-read-only (get-asset-minted-status (asset-id uint))
+;; Check if the asset has been minted by checking its metadata
+(ok (is-some (map-get? asset-metadata asset-id))))
+
+(define-read-only (is-asset-in-marketplace (asset-id uint))
+  ;; Check if the asset is listed for sale
+  (ok (default-to false (map-get? marketplace-listing asset-id))))
+
+(define-read-only (check-asset-burn-status (asset-id uint))
+  ;; Check if the asset has been burned
+  (ok (check-asset-burned asset-id)))
+
+(define-read-only (get-asset-metadata-or-default (asset-id uint))
+  ;; Retrieve the metadata URI associated with the asset ID,
+  ;; or return a default message if no metadata is found.
+  (ok (default-to "No metadata available" (map-get? asset-metadata asset-id))))
+
+(define-read-only (get-burn-status-with-fallback (asset-id uint))
+  ;; Retrieve the burn status of a specific asset or return a fallback message if not found
+  (ok (default-to false (map-get? burned-assets asset-id))))
+
 (define-read-only (check-burn-status (asset-id uint))
     ;; Check if the asset has been burned
     (ok (check-asset-burned asset-id)))
@@ -386,3 +491,4 @@
 (begin
     ;; Initialize the asset counter to 0 at contract deployment
     (var-set asset-counter u0))
+
